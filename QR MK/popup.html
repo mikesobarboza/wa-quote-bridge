@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Arial; padding: 10px; width: 220px; }
+    .row { display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px; }
+    button { width:100%; margin-top:10px; padding:8px; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <b>QR MK</b>
+    <label><input id="enabled" type="checkbox"> Ativo</label>
+  </div>
+  <div class="row">
+    <span>Remover centavos</span>
+    <label><input id="removeCents" type="checkbox"> Sim</label>
+  </div>
+  
+  <hr style="margin: 15px 0;">
+  
+  <button id="detectBtn" style="background: #4CAF50; color: white; border: none; cursor: pointer; font-weight: bold;">
+    🔍 Detectar Novo Cassino
+  </button>
+  
+  <div id="status" style="margin-top: 10px; padding: 8px; background: #f0f0f0; border-radius: 4px; font-size: 11px; display: none;">
+    <div id="statusText"></div>
+  </div>
+  
+  <div id="detectedData" style="margin-top: 10px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 10px; display: none;">
+    <b>✅ Cassino Detectado:</b>
+    <div id="dataInfo" style="margin-top: 5px;"></div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

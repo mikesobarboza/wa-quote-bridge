@@ -1,0 +1,111 @@
+{
+  "manifest_version": 3,
+  "name": "WA Quote Bridge",
+  "version": "2.0",
+  "permissions": [
+    "storage",
+    "tabs",
+    "webRequest",
+    "scripting",
+    "cookies"
+  ],
+  "host_permissions": [
+      "https://web.whatsapp.com/*",
+      "http://127.0.0.1/*",
+      "http://localhost/*",
+      "https://d2nh82wv4qbrag.cloudfront.net/*",
+      "https://d2aokpqpnbx6fz.bzpfapi.com/*",
+      "https://d2jvokyu2sg5e1.cloudfront.net/*",
+      "https://d1yoh197nyhh3m.bzcfgm.com/*",
+      "https://*.bzcfgm.com/*",
+      "https://*.cloudfront.net/*",
+      "<all_urls>"
+    ],
+  "icons": {
+    "16": "icon.ico",
+    "48": "icon.ico",
+    "128": "icon.ico"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.ico",
+      "32": "icon.ico",
+      "48": "icon.ico"
+    }
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    },
+    {
+        "matches": [
+          "https://www.icecassino.com/*",
+          "https://icecassino.com/*",
+          "https://d2nh82wv4qbrag.cloudfront.net/*",
+          "https://d2aokpqpnbx6fz.bzpfapi.com/*",
+          "https://d2jvokyu2sg5e1.cloudfront.net/*",
+          "https://d1yoh197nyhh3m.bzcfgm.com/*",
+          "https://*.bzcfgm.com/*"
+        ],
+        "js": [
+          "interceptor_main.js"
+        ],
+        "run_at": "document_start",
+        "world": "MAIN"
+      },
+    {
+        "matches": [
+          "https://www.icecassino.com/*",
+          "https://icecassino.com/*",
+          "https://d2nh82wv4qbrag.cloudfront.net/*",
+          "https://d2aokpqpnbx6fz.bzpfapi.com/*",
+          "https://d2jvokyu2sg5e1.cloudfront.net/*",
+          "https://d1yoh197nyhh3m.bzcfgm.com/*",
+          "https://*.bzcfgm.com/*"
+        ],
+        "js": [
+          "betsite.js",
+          "recharge_handler.js"
+        ],
+        "run_at": "document_start"
+      },
+    {
+        "matches": [
+          "https://www.icecassino.com/*",
+          "https://icecassino.com/*",
+          "https://d2nh82wv4qbrag.cloudfront.net/*",
+          "https://d2aokpqpnbx6fz.bzpfapi.com/*",
+          "https://d2jvokyu2sg5e1.cloudfront.net/*",
+          "https://d1yoh197nyhh3m.bzcfgm.com/*",
+          "https://*.bzcfgm.com/*"
+        ],
+        "js": [
+          "credentialExtractor.js"
+        ],
+        "run_at": "document_start"
+      }
+  ],
+  "commands": {
+    "toggle-enabled": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y"
+      },
+      "description": "Ativar/Desativar Bridge"}
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["jsQR.js", "QrCodeEncoder.js"],
+      "matches": ["https://web.whatsapp.com/*"]
+    }
+  ]
+}

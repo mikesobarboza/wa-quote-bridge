@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Arial; padding: 14px; max-width: 700px; }
+    label { display:block; margin-top:10px; font-weight:bold; }
+    input { width:100%; padding:8px; margin-top:6px; }
+    select { width:100%; padding:8px; margin-top:6px; }
+    button { padding:10px 12px; margin-top:12px; }
+    .row { display:flex; gap:12px; }
+    .row > div { flex:1; }
+  </style>
+</head>
+<body>
+  <h2>Config WA Quote Bridge</h2>
+
+  <label>Endpoint</label>
+  <input id="endpoint" placeholder="http://127.0.0.1:8788/send" />
+
+  <label>Secret</label>
+  <input id="secret" placeholder="troque-isto" />
+
+  <div class="row">
+    <div>
+      <label>Debounce (ms)</label>
+      <input id="debounceMs" placeholder="250" />
+    </div>
+    <div>
+      <label>Intervalo mínimo (ms)</label>
+      <input id="minIntervalMs" placeholder="900" />
+    </div>
+  </div>
+
+  <label>Modo PIX (Double-click)</label>
+  <select id="pixMode">
+    <option value="text">Texto (PIX code)</option>
+    <option value="image">Imagem (QR Code visual)</option>
+  </select>
+</html>
