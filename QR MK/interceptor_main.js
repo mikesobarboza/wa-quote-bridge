@@ -1039,17 +1039,18 @@ console.log('[MAIN] 🔑 Header monitorado: "token"');
 // RECEBER PEDIDO DE RECARGA DO CONTENT SCRIPT
 // ===============================
 
-async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
+async function executeRechargeInPage({ url, method = 'POST', bodyData, token, key }) {
     return (async function() {
         try {
             // 🔧 Converter para form-urlencoded se for objeto E extrair token/key para headers
             let axiosData = bodyData;
-            let tokenFromPayload = null;
-            let keyFromPayload = null;
+            let tokenFromPayload = token;  // ✅ Usa parâmetro direto
+            let keyFromPayload = key;      // ✅ Usa parâmetro direto
             
             if (typeof bodyData === 'object' && bodyData !== null) {
-                tokenFromPayload = bodyData.token;
-                keyFromPayload = bodyData.key;
+                // ✅ Se não veio nos parâmetros, tenta bodyData como fallback
+                if (!tokenFromPayload) tokenFromPayload = bodyData.token;
+                if (!keyFromPayload) keyFromPayload = bodyData.key;
                 axiosData = new URLSearchParams(bodyData).toString();
             }
 
@@ -1147,7 +1148,7 @@ window.addEventListener('message', async (event) => {
     const method = payload.method || 'POST';
 
     try {
-        const execResult = await executeRechargeInPage({ url, method, bodyData: data });
+        const execResult = await executeRechargeInPage({ url, method, bodyData: data, token: payload.token, key: payload.key });
         let responseData = execResult.body ?? null;
         if (execResult.success && typeof responseData === 'string') {
             try {

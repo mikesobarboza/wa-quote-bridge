@@ -1,0 +1,326 @@
+## 🔴 BUG IDENTIFICADO: Token e Key não chegam aos headers
+
+### **Arquivo 1: https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L0-L413 (sendRechargeViaMainWorld)**
+
+#### ✅ ESTÁ CORRETO - Envia token/key separadamente
+**Localização:** [QR https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L0-L413 linhas 264-296](https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L264-L296)
+
+```javascript
+function sendRechargeViaMainWorld(data, token, key, url = 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge', method = 'POST') {
+    return new Promise((resolve) => {
+        const mainRequestId = 'main_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+
+        function handler(event) {
+            if (event.source !== window) return;
+            const msg = event.data;
+            if (!msg || msg.type !== 'ICE_RECHARGE_RESPONSE_MAIN') return;
+            if (msg.requestId !== mainRequestId) return;
+
+            window.removeEventListener('message', handler);
+            resolve(msg);
+        }
+
+        window.addEventListener('message', handler);
+
+        window.postMessage({
+            type: 'ICE_RECHARGE_REQUEST_MAIN',
+            requestId: mainRequestId,
+            data,      // ✅ Payload com uid, key, amount, etc
+            token,     // ✅ Token separado (32 chars hex)
+            key,       // ✅ Key separada (alphanumeric)
+            url,
+            method
+        }, '*');
+
+        setTimeout(() => {
+            window.removeEventListener('message', handler);
+            resolve({ ok: false, error: 'MAIN world timeout' });
+        }, 15000);
+    });
+}
+```
+
+---
+
+### **Arquivo 2: https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147**
+
+#### ❌ CÓDIGO ATUAL (COM BUG)
+**Localização:** [QR https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147 linhas 1137-1171](https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1137-L1171)
+
+```javascript
+window.addEventListener('message', async (event) => {
+    if (event.source !== window) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'ICE_RECHARGE_REQUEST_MAIN') return;
+
+    const { requestId, data } = payload;
+    const url = payload.url || 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge';
+    const method = payload.method || 'POST';
+    
+    try {
+        // ❌ BUG: Só passa `data`, mas token e key estão em payload.token e payload.key
+        const execResult = await executeRechargeInPage({ url, method, bodyData: data });
+        let responseData = execResult.body ?? null;
+        if (execResult.success && typeof responseData === 'string') {
+            try {
+                responseData = JSON.parse(responseData);
+            } catch (e) {
+                // manter texto bruto
+            }
+        }
+
+        window.postMessage({
+            type: 'ICE_RECHARGE_RESPONSE_MAIN',
+            requestId,
+            ok: !!execResult.success,
+            status: execResult.status || 0,
+            data: execResult.success ? responseData : null,
+            error: execResult.success ? undefined : execResult.error
+        }, '*');
+    } catch (err) {
+        window.postMessage({
+            type: 'ICE_RECHARGE_RESPONSE_MAIN',
+            requestId,
+            ok: false,
+            error: err?.message || String(err)
+        }, '*');
+    }
+});
+```
+
+**Localização:** [QR https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147 linhas 1042-1071](https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1042-L1071)
+
+```javascript
+async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
+    return (async function() {
+        try {
+            // ❌ BUG: Tenta extrair token/key do bodyData, mas eles não estão lá!
+            let axiosData = bodyData;
+            let tokenFromPayload = null;
+            let keyFromPayload = null;
+            
+            if (typeof bodyData === 'object' && bodyData !== null) {
+                tokenFromPayload = bodyData.token;  // ❌ bodyData.token é undefined!
+                keyFromPayload = bodyData.key;      // ❌ bodyData.key existe mas é do body, não header!
+                axiosData = new URLSearchParams(bodyData).toString();
+            }
+
+            // 1) window.axios
+            if (window.axios) {
+                try {
+                    const axiosConfig = {
+                        method: method.toLowerCase(),
+                        url,
+                        data: axiosData,
+                        headers: {
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'token': tokenFromPayload,  // ❌ undefined ou null
+                            'key': keyFromPayload       // ❌ valor do body, não o token header
+                        }
+                    };
+
+                    const axiosResponse = await window.axios(axiosConfig);
+                    return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
+                } catch (axiosError) {
+                    if (axiosError.response) {
+                        return {
+                            success: false,
+                            status: axiosError.response.status,
+                            error: JSON.stringify(axiosError.response.data || axiosError.message)
+                        };
+                    }
+                }
+            }
+            
+            // ... (resto do código com mesmo problema)
+```
+
+---
+
+#### ✅ CÓDIGO CORRIGIDO
+
+**Localização:** [QR https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147 linhas 1137-1171](https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1137-L1171)
+
+```javascript
+window.addEventListener('message', async (event) => {
+    if (event.source !== window) return;
+    const payload = event.data;
+    if (!payload || payload.type !== 'ICE_RECHARGE_REQUEST_MAIN') return;
+
+    const { requestId, data } = payload;
+    const url = payload.url || 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge';
+    const method = payload.method || 'POST';
+    
+    try {
+        // ✅ FIX: Passa token e key separadamente
+        const execResult = await executeRechargeInPage({ 
+            url, 
+            method, 
+            bodyData: data,
+            token: payload.token,  // ✅ ADICIONADO
+            key: payload.key        // ✅ ADICIONADO
+        });
+        let responseData = execResult.body ?? null;
+        if (execResult.success && typeof responseData === 'string') {
+            try {
+                responseData = JSON.parse(responseData);
+            } catch (e) {
+                // manter texto bruto
+            }
+        }
+
+        window.postMessage({
+            type: 'ICE_RECHARGE_RESPONSE_MAIN',
+            requestId,
+            ok: !!execResult.success,
+            status: execResult.status || 0,
+            data: execResult.success ? responseData : null,
+            error: execResult.success ? undefined : execResult.error
+        }, '*');
+    } catch (err) {
+        window.postMessage({
+            type: 'ICE_RECHARGE_RESPONSE_MAIN',
+            requestId,
+            ok: false,
+            error: err?.message || String(err)
+        }, '*');
+    }
+});
+```
+
+**Localização:** [QR https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147 linhas 1042-1124](https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1042-L1124)
+
+```javascript
+// ✅ FIX: Adiciona token e key como parâmetros da função
+async function executeRechargeInPage({ url, method = 'POST', bodyData, token, key }) {
+    return (async function() {
+        try {
+            // ✅ FIX: Usa os parâmetros token/key recebidos
+            let axiosData = bodyData;
+            let tokenFromPayload = token;  // ✅ Usa parâmetro direto
+            let keyFromPayload = key;      // ✅ Usa parâmetro direto
+            
+            if (typeof bodyData === 'object' && bodyData !== null) {
+                // ✅ Se não veio nos parâmetros, tenta bodyData como fallback
+                if (!tokenFromPayload) tokenFromPayload = bodyData.token;
+                if (!keyFromPayload) keyFromPayload = bodyData.key;
+                axiosData = new URLSearchParams(bodyData).toString();
+            }
+
+            // 1) window.axios
+            if (window.axios) {
+                try {
+                    const axiosConfig = {
+                        method: method.toLowerCase(),
+                        url,
+                        data: axiosData,
+                        headers: {
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'token': tokenFromPayload,  // ✅ Agora tem o valor correto
+                            'key': keyFromPayload       // ✅ Agora tem o valor correto
+                        }
+                    };
+
+                    const axiosResponse = await window.axios(axiosConfig);
+                    return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
+                } catch (axiosError) {
+                    if (axiosError.response) {
+                        return {
+                            success: false,
+                            status: axiosError.response.status,
+                            error: JSON.stringify(axiosError.response.data || axiosError.message)
+                        };
+                    }
+                }
+            }
+
+            // 2) axios em módulos comuns
+            const axiosLocations = [
+                window.__NUXT__?.axios,
+                window.__NUXT__?.$axios,
+                window.$nuxt?.$axios,
+                window.app?.axios,
+                window.Vue?.prototype?.$axios
+            ].filter(Boolean);
+
+            for (const ax of axiosLocations) {
+                if (ax && typeof ax === 'function') {
+                    try {
+                        const axiosConfig = {
+                            method: method.toLowerCase(),
+                            url,
+                            data: axiosData,
+                            headers: {
+                                'Accept': 'application/json, text/plain, */*',
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'token': tokenFromPayload,  // ✅ Agora tem o valor correto
+                                'key': keyFromPayload       // ✅ Agora tem o valor correto
+                            }
+                        };
+
+                        const axiosResponse = await ax(axiosConfig);
+                        return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
+                    } catch {}
+                }
+            }
+
+            // 3) fetch fallback (usa cookies do site automaticamente)
+            const fetchResponse = await fetch(url, {
+                method,
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json, text/plain, */*',
+                    'token': tokenFromPayload,  // ✅ Agora tem o valor correto
+                    'key': keyFromPayload       // ✅ Agora tem o valor correto
+                },
+                body: method !== 'GET'
+                    ? (typeof bodyData === 'string' ? bodyData : new URLSearchParams(bodyData).toString())
+                    : undefined,
+                credentials: 'include'
+            });
+
+            const text = await fetchResponse.text();
+            if (!fetchResponse.ok) {
+                return { success: false, status: fetchResponse.status, error: text };
+            }
+            return { success: true, status: fetchResponse.status, body: text };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    })();
+}
+```
+
+---
+
+## 📊 RESUMO DO BUG
+
+| Item | Origem | Destino | Status |
+|------|--------|---------|--------|
+| **Payload (data)** | https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L0-L413 → `postMessage.data` | https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/interceptor_main.js#L1032-L1147 → `executeRechargeInPage.bodyData` | ✅ OK |
+| **Token (header)** | https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L0-L413 → `postMessage.token` | ❌ **PERDIDO** - não chegava em `executeRechargeInPage` | ❌ BUG |
+| **Key (header)** | https://github.com/mikesobarboza/wa-quote-bridge/tree/main/QR%20MK/recharge_handler.js#L0-L413 → `postMessage.key` | ❌ **PERDIDO** - não chegava em `executeRechargeInPage` | ❌ BUG |
+
+### ❌ RESULTADO ATUAL (COM BUG):
+```
+Headers enviados: {
+  Accept: "application/json, text/plain, */*",
+  Content-Type: "application/x-www-form-urlencoded",
+  token: undefined,  // ❌ FALTANDO!
+  key: "WVvWGWWZMgRwdTCTUSrH"  // ⚠️ Valor do body, não do token header
+}
+```
+
+### ✅ RESULTADO ESPERADO (APÓS FIX):
+```
+Headers enviados: {
+  Accept: "application/json, text/plain, */*",
+  Content-Type: "application/x-www-form-urlencoded",
+  token: "296b2f41577a0cc6af649adb1c0b578f",  // ✅ CORRETO!
+  key: "WVvWGWWZMgRwdTCTUSrH"  // ✅ CORRETO!
+}
+```
+
+Esse fix resolve completamente o "error sign"! 🎯
