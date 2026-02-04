@@ -17,34 +17,10 @@ logger = logging.getLogger("icecassino_api")
 
 def calculate_sign(params: dict, token: str) -> str:
     """
-    Calcula o sign MD5 para Ice Casino.
-    
-    Estratégia corrigida:
-    - Pega params com: uid, key, amount, pid, return_url, pay_method, type, gear, _t
-    - Adiciona secret key padrão
-    - Ordena alfabeticamente
-    - Concatena com "&"
-    - Calcula MD5
+    Mantido apenas por compatibilidade: o body NÃO usa 'sign'.
+    A autenticação é feita via headers 'token' e 'key'.
     """
-    import hashlib
-    
-    # Remove sign se existir (pois estamos calculando)
-    clean_params = {k: v for k, v in params.items() if k != "sign"}
-    
-    # Adiciona secret key padrão (usado pela Ice Casino)
-    clean_params["secret"] = "8uhIUHIH323*&8"  # Secret key padrão do Ice Casino
-    
-    # Ordena alfabeticamente e constrói query string
-    sorted_keys = sorted(clean_params.keys())
-    param_str = "&".join([f"{k}={clean_params[k]}" for k in sorted_keys])
-    
-    # Calcula MD5 com a string formatada
-    final_sign = hashlib.md5(param_str.encode()).hexdigest()
-    
-    print(f"[BRIDGE] 🔐 Query para MD5: {param_str[:100]}...")
-    print(f"[BRIDGE] ✅ Sign MD5 calculado: {final_sign}")
-    
-    return final_sign
+    return ""
 
 
 def icecassino_recharge(token: str, amount: float, uid: str, key: str, casino_url: str = "", cookies: str = "") -> Dict[str, Any]:
@@ -74,34 +50,20 @@ def icecassino_recharge(token: str, amount: float, uid: str, key: str, casino_ur
     amount_centavos = int(amount)
     print(f"[BRIDGE] Amount final: {amount_centavos} centavos")
     
-    # Payload COM parâmetros para cálculo correto de sign
-    import time
-    timestamp = int(time.time() * 1000)
-    
+    # Payload alinhado com requisição manual (sem sign, sem _t e gear)
     data = {
         "uid": uid,
         "key": key,
         "amount": str(amount_centavos),
         "pid": "0",
         "return_url": "https://th.betbuzz.cc/PayBack/",
-        "pay_method": "cartbank",
-        "type": "1",                    # ✅ CORRIGIDO: deve ser 1, não 0
-        "gear": "2",                    # ✅ ADICIONADO: parâmetro necessário
-        "_t": str(timestamp)            # ✅ ADICIONADO: timestamp requerido
+        "pay_method": "uwin-bindcard500",
+        "type": "0"
     }
     
-    # IMPORTANTE: Ice Casino REQUER sign calculado com TODOS os parâmetros
-    # O sign é adicionado por um interceptor APÓS o XMLHttpRequest.send
-    # Vamos calcular e adicionar aqui
-    sign = calculate_sign(data, token)
-    data["sign"] = sign
-    
-    print(f"[BRIDGE] 🔧 Parâmetros finais para assinatura:")
+    print(f"[BRIDGE] 🔧 Parâmetros finais:")
     for k, v in sorted(data.items()):
-        if k != "sign":
-            print(f"[BRIDGE]   - {k}: {v}")
-    
-    print(f"[BRIDGE] ✅ Payload com sign calculado!")
+        print(f"[BRIDGE]   - {k}: {v}")
     
     # Usa URL personalizada ou padrão do Ice Casino
     url = casino_url if casino_url else "https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge"
@@ -139,9 +101,7 @@ def icecassino_recharge(token: str, amount: float, uid: str, key: str, casino_ur
     for item in body.split('&'):
         if '=' in item:
             k, v = item.split('=', 1)
-            if k == 'sign':
-                print(f"[BRIDGE]   - {k}: {v}")
-            elif k == 'return_url':
+            if k == 'return_url':
                 print(f"[BRIDGE]   - {k}: [URL encoding]")
             else:
                 print(f"[BRIDGE]   - {k}: {v}")

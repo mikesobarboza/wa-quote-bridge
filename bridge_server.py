@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -53,6 +54,7 @@ class ServerState:
         self.message_history: List[Dict] = []
         self.last_cookies: Optional[str] = None
         self.last_cookies_time: Optional[datetime] = None
+        self.recharge_results: Dict[str, Dict] = {}
         self.stats = {
             "total_received": 0,
             "total_processed": 0,
@@ -306,29 +308,33 @@ async def process_message(request: Request):
             raise HTTPException(status_code=400, detail="Login remoto não suportado. Faça login manualmente no Ice Casino.")
 
         elif acao == "recarga":
-            # Parâmetros corretos conforme API real
-            required = ["token", "amount", "uid", "key"]
+            # Enfileirar recarga para processamento no MAIN world (extensão)
+            required = ["amount", "uid", "key"]
             for param in required:
                 if not body.get(param):
                     raise HTTPException(status_code=400, detail=f"Parâmetro obrigatório: {param}")
-            
-            # Usa URL personalizada se fornecida (cassino detectado automaticamente)
-            casino_url = body.get("casinoUrl", "")
-            cookies = body.get("cookies", "")
-            if not cookies and state.last_cookies:
-                cookies = state.last_cookies
-                print("[BRIDGE] 🍪 Usando cookies salvos da captura")
-            
-            result = icecassino_recharge(
-                token=body["token"],
-                amount=float(body["amount"]),
-                uid=body["uid"],
-                key=body["key"],
-                casino_url=casino_url,
-                cookies=cookies
-            )
-            logger.info(f"Recarga solicitada para UID {body['uid']} valor {body['amount']}")
-            return {"status": "ok", "acao": "recarga", "result": result}
+
+            request_id = body.get("request_id") or f"rq_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+            amount_val = float(body["amount"])
+            processed_text = f"recarga:{body['uid']}:{amount_val}"
+
+            message = {
+                "uid": body["uid"],
+                "key": body["key"],
+                "amount": amount_val,
+                "request_id": request_id,
+                "processed_text": processed_text,
+                "original_text": body.get("text", ""),
+                "timestamp": datetime.now().isoformat()
+            }
+
+            added = state.add_message(message)
+            if not added:
+                logger.warning("Recarga duplicada rejeitada")
+                return {"status": "duplicate", "acao": "recarga", "request_id": request_id, "job_id": request_id}
+
+            logger.info(f"Recarga enfileirada para UID {body['uid']} valor {body['amount']}")
+            return {"status": "queued", "acao": "recarga", "request_id": request_id, "job_id": request_id}
 
         else:
             logger.error(f"Ação não suportada: {acao}")
@@ -489,6 +495,10 @@ async def get_pending_recharge():
             "status": "success",
             "message": "Recarga pendente encontrada",
             "data": {
+                "uid": next_msg.get("uid", ""),
+                "key": next_msg.get("key", ""),
+                "amount": next_msg.get("amount", 0),
+                "request_id": next_msg.get("request_id", ""),
                 "text": next_msg.get("processed_text", ""),
                 "original_text": next_msg.get("original_text", ""),
                 "timestamp": next_msg.get("timestamp", "")
@@ -497,6 +507,31 @@ async def get_pending_recharge():
     except Exception as e:
         print(f"[BRIDGE] ❌ Erro ao obter recargas pendentes: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/recharge_result")
+async def receive_recharge_result(request: Request):
+    """Recebe o resultado da recarga processada pela extensão"""
+    try:
+        data = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"JSON inválido: {e}")
+
+    request_id = data.get("request_id")
+    status = data.get("status")
+    result_data = data.get("data")
+
+    if not request_id:
+        raise HTTPException(status_code=400, detail="request_id obrigatório")
+
+    success = status == "success"
+    state.recharge_results[request_id] = {
+        "status": status,
+        "data": result_data,
+        "timestamp": datetime.now().isoformat()
+    }
+    state.confirm_processing(success)
+
+    return {"status": "ok", "request_id": request_id}
 
 if __name__ == "__main__":
     import uvicorn

@@ -5,6 +5,25 @@
 // ========== FUNÇÕES DE DEBUG GLOBAIS ==========
 // Definidas ANTES da IIFE para garantir disponibilidade imediata
 
+function safeChromeStorageSet(data, callback) {
+    try {
+        if (!chrome || !chrome.storage || !chrome.storage.local || !chrome.runtime || !chrome.runtime.id) {
+            console.warn('[ICE] ⚠️ chrome.storage indisponível (contexto inválido)');
+            return;
+        }
+        chrome.storage.local.set(data, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('[ICE] ⚠️ Erro chrome.storage.local.set:', chrome.runtime.lastError);
+            }
+            if (typeof callback === 'function') {
+                callback();
+            }
+        });
+    } catch (e) {
+        console.warn('[ICE] ⚠️ Erro ao acessar chrome.storage.local.set:', e);
+    }
+}
+
 window.forceSaveTokenToStorage = function() {
     const token = localStorage.getItem('icecassino_token');
     if (!token) {
@@ -20,15 +39,13 @@ window.forceSaveTokenToStorage = function() {
     
     // Salvar em chrome.storage.local também
     console.log('[DEBUG] Salvando em chrome.storage.local...');
-    chrome.storage.local.set({
+    safeChromeStorageSet({
         icecassino_token: token,
         icecassino_token_source: 'manual_force',
         icecassino_token_time: Date.now()
     }, () => {
-        if (chrome.runtime.lastError) {
-            console.error('[DEBUG] ❌ Erro:', chrome.runtime.lastError);
-        } else {
-            console.log('%c[DEBUG] ✅ Token salvo com sucesso em AMBOS os storages!', 'color: #4CAF50; font-weight: bold;');
+        console.log('%c[DEBUG] ✅ Token salvo com sucesso em AMBOS os storages!', 'color: #4CAF50; font-weight: bold;');
+        if (chrome && chrome.storage && chrome.storage.local) {
             chrome.storage.local.get(['icecassino_token'], (result) => {
                 console.log('[DEBUG] 🔍 Verificação:', result);
             });
@@ -168,36 +185,44 @@ console.log('  → window.checkStorageStatus()');
         // Método 1: Observar requisições de rede
         const observer = new PerformanceObserver((list) => {
             list.getEntries().forEach(entry => {
-                if (entry.name && entry.name.includes('uid=') && entry.name.includes('key=')) {
-                    const uidMatch = entry.name.match(/uid=(\d+)/);
-                    const keyMatch = entry.name.match(/key=([^&]+)/);
+                try {
+                    const entryName = typeof entry.name === 'string'
+                        ? entry.name
+                        : (entry.name && entry.name.toString ? entry.name.toString() : '');
+
+                    if (entryName && entryName.includes('uid=') && entryName.includes('key=')) {
+                        const uidMatch = entryName.match(/uid=(\d+)/);
+                        const keyMatch = entryName.match(/key=([^&]+)/);
                     
-                    if (uidMatch && keyMatch) {
-                        const uid = uidMatch[1];
-                        const key = keyMatch[1];
+                        if (uidMatch && keyMatch) {
+                            const uid = uidMatch[1];
+                            const key = keyMatch[1];
                         
-                        if (uid && uid.length > 5 && uid.length < 20 && key && key.length > 10 && key.length < 50) {
-                            console.log('%c[ICE] ✅ LOGIN ENCONTRADO!', 
-                                      'color: #4CAF50; font-weight: bold;', 
-                                      { uid, key: key.substring(0, 10) + '...' });
+                            if (uid && uid.length > 5 && uid.length < 20 && key && key.length > 10 && key.length < 50) {
+                                console.log('%c[ICE] ✅ LOGIN ENCONTRADO!', 
+                                          'color: #4CAF50; font-weight: bold;', 
+                                          { uid, key: key.substring(0, 10) + '...' });
                             
-                            // APENAS salvar localmente - NÃO enviar para API
-                            localStorage.setItem('icecassino_uid', uid);
-                            localStorage.setItem('icecassino_key', key);
-                            
-                            // Também salvar em chrome.storage para acesso do content.js
-                            chrome.storage.local.set({
-                                casino_uid: uid,
-                                casino_key: key,
-                                casino_key_updated: Date.now()
-                            });
-                            
-                            loginCaptured = true;
-                            
-                            // Atualizar UI
-                            updateUI('login_captured');
+                                // APENAS salvar localmente - NÃO enviar para API
+                                localStorage.setItem('icecassino_uid', uid);
+                                localStorage.setItem('icecassino_key', key);
+                                
+                                // Também salvar em chrome.storage para acesso do content.js
+                                safeChromeStorageSet({
+                                    casino_uid: uid,
+                                    casino_key: key,
+                                    casino_key_updated: Date.now()
+                                });
+                                
+                                loginCaptured = true;
+                                
+                                // Atualizar UI
+                                updateUI('login_captured');
+                            }
                         }
                     }
+                } catch (e) {
+                    console.warn('[ICE] ⚠️ Falha ao processar PerformanceObserver entry:', e);
                 }
             });
         });
@@ -525,25 +550,19 @@ console.log('  → window.checkStorageStatus()');
         localStorage.setItem('icecassino_token_time', Date.now());
 
         // Salvar no storage da extensão (para o recharge_handler) - SEMPRE
-        try {
-            chrome.storage.local.set({
-                icecassino_token: token,
-                icecassino_token_source: source,
-                icecassino_token_time: Date.now()
-            }, () => {
-                if (chrome.runtime.lastError) {
-                    console.error('[ICE] ❌ Erro ao salvar token no chrome.storage:', chrome.runtime.lastError);
-                } else {
-                    console.log('[ICE] ✅ Token salvo em chrome.storage.local com sucesso!');
-                    console.log('[ICE] 🔍 Verificando salvamento...');
-                    chrome.storage.local.get(['icecassino_token'], (result) => {
-                        console.log('[ICE] 🔍 Token em storage após salvar:', result);
-                    });
-                }
-            });
-        } catch (e) {
-            console.error('[ICE] ❌ Exceção ao salvar token no storage:', e);
-        }
+        safeChromeStorageSet({
+            icecassino_token: token,
+            icecassino_token_source: source,
+            icecassino_token_time: Date.now()
+        }, () => {
+            console.log('[ICE] ✅ Token salvo em chrome.storage.local com sucesso!');
+            console.log('[ICE] 🔍 Verificando salvamento...');
+            if (chrome && chrome.storage && chrome.storage.local) {
+                chrome.storage.local.get(['icecassino_token'], (result) => {
+                    console.log('[ICE] 🔍 Token em storage após salvar:', result);
+                });
+            }
+        });
         
         // Evitar duplicados (apenas log, não retornar)
         if (existingToken === token) {
@@ -863,7 +882,7 @@ console.log('  → window.checkStorageStatus()');
                 const key = params.key || localStorage.getItem('icecassino_key') || '';
 
                 localStorage.setItem('icecassino_recharge_template', JSON.stringify(template));
-                chrome.storage.local.set({ 
+                safeChromeStorageSet({ 
                     icecassino_recharge_template: template,
                     icecassino_uid: uid,
                     icecassino_key: key
@@ -881,7 +900,7 @@ console.log('  → window.checkStorageStatus()');
                 if (input) {
                     localStorage.setItem('icecassino_last_md5_input', input);
                     localStorage.setItem('icecassino_last_md5_output', output);
-                    chrome.storage.local.set({
+                    safeChromeStorageSet({
                         icecassino_last_md5_input: input,
                         icecassino_last_md5_output: output
                     });
@@ -899,7 +918,7 @@ console.log('  → window.checkStorageStatus()');
                 const stack = event.data.stack || '';
                 if (token && stack) {
                     localStorage.setItem('icecassino_token_stack', stack);
-                    chrome.storage.local.set({ icecassino_token_stack: stack });
+                    safeChromeStorageSet({ icecassino_token_stack: stack });
                     console.log('[ICE] 🧩 Stack do token capturado');
                 }
             } catch (e) {
@@ -913,7 +932,7 @@ console.log('  → window.checkStorageStatus()');
                 const value = event.data.value || '';
                 if (source && value) {
                     localStorage.setItem('icecassino_token_source_last', source);
-                    chrome.storage.local.set({ icecassino_token_source_last: source });
+                    safeChromeStorageSet({ icecassino_token_source_last: source });
                     console.log('[ICE] 🧩 Token salvo em:', source);
                 }
             } catch (e) {
@@ -926,7 +945,7 @@ console.log('  → window.checkStorageStatus()');
                 const sources = event.data.sources || [];
                 if (sources.length) {
                     localStorage.setItem('icecassino_token_sources', JSON.stringify(sources));
-                    chrome.storage.local.set({ icecassino_token_sources: sources });
+                    safeChromeStorageSet({ icecassino_token_sources: sources });
                     console.log('[ICE] 🧩 Token encontrado em:', sources);
                 }
             } catch (e) {
@@ -945,7 +964,7 @@ console.log('  → window.checkStorageStatus()');
                     localStorage.setItem('icecassino_sign_found_input', input);
                     localStorage.setItem('icecassino_sign_found_output', output);
                     localStorage.setItem('icecassino_sign_found_extra', extra);
-                    chrome.storage.local.set({
+                    safeChromeStorageSet({
                         icecassino_sign_found_source: source,
                         icecassino_sign_found_input: input,
                         icecassino_sign_found_output: output,
@@ -969,7 +988,7 @@ console.log('  → window.checkStorageStatus()');
                     localStorage.setItem('icecassino_sign_algo', algo);
                     localStorage.setItem('icecassino_sign_secret', secret || '');
                     localStorage.setItem('icecassino_sign_secret_value', secretValue);
-                    chrome.storage.local.set({
+                    safeChromeStorageSet({
                         icecassino_sign_algo: algo,
                         icecassino_sign_secret: secret || '',
                         icecassino_sign_secret_value: secretValue

@@ -954,6 +954,16 @@ OriginalXHR.prototype.send = function(body) {
                 console.log('[MAIN] ⚠️ IMPORTANTE: O token pode estar vindo de uma requisição anterior!');
             }
             
+            // 💾 SALVAR TOKEN EM localStorage IMEDIATAMENTE (acessível ao content script)
+            try {
+                localStorage.setItem('icecassino_token', token);
+                localStorage.setItem('icecassino_token_source', 'interceptor_main_recharge');
+                localStorage.setItem('icecassino_token_time', new Date().toISOString());
+                console.log('%c[MAIN] 💾 TOKEN SALVO EM localStorage!', 'color: #4CAF50; font-weight: bold;');
+            } catch (e) {
+                console.warn('[MAIN] ⚠️ Erro ao salvar token em localStorage:', e);
+            }
+
             // Enviar token para storage via content script
             window.postMessage({
                 type: 'ICE_RECHARGE_TOKEN_ACTUAL',
@@ -971,6 +981,24 @@ OriginalXHR.prototype.send = function(body) {
         const params = parseBodyToParams(body);
         const isAuto = !!(data.headers && (data.headers['x-ice-auto'] || data.headers['X-ICE-AUTO'] || data.headers['x-ICE-auto']));
         if (params && !isAuto) {
+            // 💾 SALVAR UID E KEY EM localStorage
+            if (params.uid) {
+                try {
+                    localStorage.setItem('icecassino_uid', params.uid);
+                    console.log('%c[MAIN] 💾 UID SALVO:', 'color: #4CAF50; font-weight: bold;', params.uid);
+                } catch (e) {
+                    console.warn('[MAIN] ⚠️ Erro ao salvar UID:', e);
+                }
+            }
+            if (params.key) {
+                try {
+                    localStorage.setItem('icecassino_key', params.key);
+                    console.log('%c[MAIN] 💾 KEY SALVA:', 'color: #4CAF50; font-weight: bold;', params.key.substring(0, 5) + '...');
+                } catch (e) {
+                    console.warn('[MAIN] ⚠️ Erro ao salvar KEY:', e);
+                }
+            }
+            
             postRechargeTemplate(params, data.headers);
             const sign = params.sign;
             if (sign) {
@@ -1011,63 +1039,128 @@ console.log('[MAIN] 🔑 Header monitorado: "token"');
 // RECEBER PEDIDO DE RECARGA DO CONTENT SCRIPT
 // ===============================
 
+async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
+    return (async function() {
+        try {
+            // 🔧 Converter para form-urlencoded se for objeto E extrair token/key para headers
+            let axiosData = bodyData;
+            let tokenFromPayload = null;
+            let keyFromPayload = null;
+            
+            if (typeof bodyData === 'object' && bodyData !== null) {
+                tokenFromPayload = bodyData.token;
+                keyFromPayload = bodyData.key;
+                axiosData = new URLSearchParams(bodyData).toString();
+            }
+
+            // 1) window.axios
+            if (window.axios) {
+                try {
+                    const axiosConfig = {
+                        method: method.toLowerCase(),
+                        url,
+                        data: axiosData,
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }
+                    };
+                    
+                    // 🔑 Adicionar token e key aos headers (igual à recarga manual)
+                    if (tokenFromPayload) axiosConfig.headers.token = tokenFromPayload;
+                    if (keyFromPayload) axiosConfig.headers.key = keyFromPayload;
+
+                    const axiosResponse = await window.axios(axiosConfig);
+                    return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
+                } catch (axiosError) {
+                    if (axiosError.response) {
+                        return {
+                            success: false,
+                            status: axiosError.response.status,
+                            error: JSON.stringify(axiosError.response.data || axiosError.message)
+                        };
+                    }
+                }
+            }
+
+            // 2) axios em módulos comuns
+            const axiosLocations = [
+                window.__NUXT__?.axios,
+                window.__NUXT__?.$axios,
+                window.$nuxt?.$axios,
+                window.app?.axios,
+                window.Vue?.prototype?.$axios
+            ].filter(Boolean);
+
+            for (const ax of axiosLocations) {
+                if (ax && typeof ax === 'function') {
+                    try {
+                        const axiosConfig = {
+                            method: method.toLowerCase(),
+                            url,
+                            data: axiosData,  // Use outer scope variable
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            }
+                        };
+
+                        // 🔑 Adicionar token e key aos headers (igual à recarga manual)
+                        if (tokenFromPayload) axiosConfig.headers.token = tokenFromPayload;
+                        if (keyFromPayload) axiosConfig.headers.key = keyFromPayload;
+
+                        const axiosResponse = await ax(axiosConfig);
+                        return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
+                    } catch {}
+                }
+            }
+
+            // 3) fetch fallback (usa cookies do site automaticamente)
+            const fetchResponse = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: method !== 'GET'
+                    ? (typeof bodyData === 'string' ? bodyData : new URLSearchParams(bodyData).toString())
+                    : undefined,
+                credentials: 'include'
+            });
+
+            const text = await fetchResponse.text();
+            if (!fetchResponse.ok) {
+                return { success: false, status: fetchResponse.status, error: text };
+            }
+            return { success: true, status: fetchResponse.status, body: text };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    })();
+}
+
 window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
     const payload = event.data;
     if (!payload || payload.type !== 'ICE_RECHARGE_REQUEST_MAIN') return;
 
-    const { requestId, data, token, key } = payload;
+    const { requestId, data } = payload;
+    const url = payload.url || 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge';
+    const method = payload.method || 'POST';
 
     try {
-        const axiosInstance = window.axios || window.$axios || window.http;
-        const url = 'https://d1yoh197nyhh3m.bzcfgm.com/api/v1/user/recharge';
-        let responseData = null;
-        let statusCode = 0;
-
-        // Se já detectamos padrão de SIGN, calcular
-        if (SIGN_HELPER.pattern && !data.sign) {
-            const computed = SIGN_HELPER.compute(data, token);
-            if (computed) {
-                data.sign = computed;
-                console.log('[MAIN] ✅ SIGN aplicado automaticamente:', SIGN_HELPER.pattern);
+        const execResult = await executeRechargeInPage({ url, method, bodyData: data });
+        let responseData = execResult.body ?? null;
+        if (execResult.success && typeof responseData === 'string') {
+            try {
+                responseData = JSON.parse(responseData);
+            } catch (e) {
+                // manter texto bruto
             }
-        }
-
-        if (axiosInstance && typeof axiosInstance.post === 'function') {
-            const formBody = new URLSearchParams(data).toString();
-            const axiosResp = await axiosInstance.post(url, formBody, {
-                headers: {
-                    'Accept': 'application/json, text/plain, */*',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'token': token,
-                    'key': key,
-                    'x-ice-auto': '1'
-                }
-            });
-            responseData = axiosResp?.data ?? null;
-            statusCode = axiosResp?.status ?? 0;
-        } else {
-            const fetchResp = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json, text/plain, */*',
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'token': token,
-                    'key': key,
-                    'x-ice-auto': '1'
-                },
-                body: new URLSearchParams(data).toString()
-            });
-            statusCode = fetchResp.status;
-            responseData = await fetchResp.json();
         }
 
         window.postMessage({
             type: 'ICE_RECHARGE_RESPONSE_MAIN',
             requestId,
-            ok: true,
-            status: statusCode,
-            data: responseData
+            ok: !!execResult.success,
+            status: execResult.status || 0,
+            data: execResult.success ? responseData : null,
+            error: execResult.success ? undefined : execResult.error
         }, '*');
     } catch (err) {
         window.postMessage({
