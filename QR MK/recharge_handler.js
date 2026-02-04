@@ -228,28 +228,6 @@ async function processRecharge(uid, key, amount, requestId, returnResultOnly = f
 
         
 
-        //  CORREÇÃO CRÍTICA: Calcular e adicionar sign field
-        const secretValue = getSecretValue(signSecret, signKeyDefault, key, formPayload.key, signSecretValue);
-        const bodyStr = new URLSearchParams(formPayload).toString();
-        let sign = null;
-        
-        if (signAlgo) {
-            sign = md5(buildSignString(signAlgo, formPayload, bodyStr, secretValue));
-            console.log('[RECHARGE]  Campo sign CALCULADO com algoritmo:', signAlgo);
-        } else {
-            // Fallback: usar algoritmo padrão
-            sign = md5(buildOrderedQuery(formPayload, false) + (secretValue || signKeyDefault));
-            console.log('[RECHARGE]  sign calculado com fallback algorithm');
-        }
-        
-        if (sign) {
-            formPayload.sign = sign;
-            console.log('[RECHARGE]  Sign adicionado ao payload:', sign.substring(0, 16) + '...');
-        }
-        
-        console.log('[RECHARGE]  Form Payload Final (COM sign):', formPayload);
-
-
 
         const amountCentavos = Math.round(amount * 100);
 
@@ -491,30 +469,10 @@ async function processRecharge(uid, key, amount, requestId, returnResultOnly = f
         
         if (sign) {
             formPayload.sign = sign;
-            console.log('[RECHARGE]  Sign adicionado ao payload:', sign.substring(0, 16) + '...');
+            console.log('[RECHARGE] 🔐 Sign adicionado ao payload:', sign.substring(0, 16) + '...');
         }
         
-        console.log('[RECHARGE]  Form Payload Final (COM sign):', formPayload);
-
-
-
-
-
-        const sign = null;
-
-
-
-        console.log('[RECHARGE] âœ… Sem campo sign (alinhado com recarga manual).');
-
-
-
-        console.log('[RECHARGE] ðŸ”§ Form Payload Final (SEM sign):', formPayload);
-
-
-
-        
-
-
+        console.log('[RECHARGE] 🔧 Form Payload Final (COM sign):', formPayload);
 
         const formData = new URLSearchParams(formPayload);
 
@@ -2777,8 +2735,6 @@ if (document.readyState === 'loading') {
 
 
 console.log('[RECHARGE] âœ… Sistema de recarga ativo!');
-
-
 
 
 
