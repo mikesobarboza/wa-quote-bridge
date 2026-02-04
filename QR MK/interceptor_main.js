@@ -1061,13 +1061,12 @@ async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
                         url,
                         data: axiosData,
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
+                            'Accept': 'application/json, text/plain, */*',
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'token': tokenFromPayload,
+                            'key': keyFromPayload
                         }
                     };
-                    
-                    // 🔑 Adicionar token e key aos headers (igual à recarga manual)
-                    if (tokenFromPayload) axiosConfig.headers.token = tokenFromPayload;
-                    if (keyFromPayload) axiosConfig.headers.key = keyFromPayload;
 
                     const axiosResponse = await window.axios(axiosConfig);
                     return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
@@ -1099,13 +1098,12 @@ async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
                             url,
                             data: axiosData,  // Use outer scope variable
                             headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded'
+                                'Accept': 'application/json, text/plain, */*',
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'token': tokenFromPayload,
+                                'key': keyFromPayload
                             }
                         };
-
-                        // 🔑 Adicionar token e key aos headers (igual à recarga manual)
-                        if (tokenFromPayload) axiosConfig.headers.token = tokenFromPayload;
-                        if (keyFromPayload) axiosConfig.headers.key = keyFromPayload;
 
                         const axiosResponse = await ax(axiosConfig);
                         return { success: true, status: axiosResponse?.status ?? 0, body: JSON.stringify(axiosResponse.data) };
@@ -1116,7 +1114,12 @@ async function executeRechargeInPage({ url, method = 'POST', bodyData }) {
             // 3) fetch fallback (usa cookies do site automaticamente)
             const fetchResponse = await fetch(url, {
                 method,
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json, text/plain, */*',
+                    'token': tokenFromPayload,
+                    'key': keyFromPayload
+                },
                 body: method !== 'GET'
                     ? (typeof bodyData === 'string' ? bodyData : new URLSearchParams(bodyData).toString())
                     : undefined,
